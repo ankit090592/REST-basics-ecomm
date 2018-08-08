@@ -1,0 +1,231 @@
+//--------------------important------------------------
+/**
+ * console.log() is a synchronous function, which is blocking i/o
+ * So, using too many console.log() will slow down the app.
+ * Use a logger library like *pino* logger library 
+ */
+
+//----------------------imports -------------------------
+const express = require('express');
+const mongoose = require('mongoose');
+const shortid = require('shortid');
+
+//custom library for standardised time 
+const time = require('../libs/timeLib')
+
+//custom library for standard response being sent from API to client side
+const response = require('../libs/responseLib')
+
+/*custom library for standardised checking of response being sent from API to client side
+ie whether the response for a request is valid or not*/
+const check = require('../libs/checkLib')
+
+//
+const logger = require('../libs/loggerLib')
+//----------------------imports end-------------------------
+
+//Importing the model here 
+//ProductModel - reads the schema defined in models Product-Model.js
+//Product - name of DB to use
+const ProductModel = mongoose.model('Product')
+
+//--------------Mongoose CRUD operations-------------------------------
+/**
+ * db.find() - find in whole db
+ * db.findOne() - find in 1 doc of db
+ * db.update()
+ * db.remove() - for deleting
+ */
+let getAllProducts = (req, res) => {
+    ProductModel.find() //mongoose DB method - similar to MongoDB findOne()
+        .select('-__v -_id') //to hide these params from user, prefixed with minus sign
+        .lean() //to convert mongoose to plain JS
+        //using .exec() callback is optional
+        .exec((err, result) => {
+            if (err) { 
+                // console.log(err)
+                // res.send(err)
+                logger.error(err.message, 'product Controller: getAllProducts', 10)
+                let apiResponse = response.generateResponse(true, 'Internal Server Error', 500, null);
+                res.send(apiResponse)
+            } else if (check.isEmpty(result)) {
+                // console.log('No product Found')
+                // res.send("No product Found")
+                logger.info('No product Found', 'product Controller: getAllProducts')
+                let apiResponse = response.generateResponse(true, 'No product found', 404, null);
+                res.send(apiResponse)
+            } else {
+                // res.send(result)
+                let apiResponse = response.generateResponse(false, 'product details found', 200, result);
+                res.send(apiResponse)
+            }
+        })
+}// end get all products
+
+/**
+ * function to read single product.
+ */
+let viewByProductId = (req, res) => {
+
+    if(check.isEmpty(req.params.prodId)){
+        console.log('productId should be passed')
+        let apiResponse = response.generateResponse(true, 'productId is missing', 403, null)
+        res.send(apiResponse)
+    }
+    else{
+    ProductModel.findOne({ 'prodId': req.params.prodId }, (err, result) => {
+
+        if (err) {
+            logger.error(`Error Occured : ${err}`, 'Database', 10)
+            let apiResponse = response.generateResponse(true, 'Internal Server Error', 500, null);
+                res.send(apiResponse)
+        } else if (result == undefined || result == null || result == '') {
+            let apiResponse = response.generateResponse(true, 'No product found', 404, null);
+                res.send(apiResponse)
+        } else {
+            logger.info("product found successfully","productController:ViewproductById",5)
+            let apiResponse = response.generateResponse(false, 'product details found', 200, result);
+                res.send(apiResponse)
+        }
+    })
+}
+}
+
+/**
+ * function to read products by category - GET
+ */
+let viewByProductCategory = (req, res) => {
+    if (check.isEmpty(req.params.prodCategory)) {
+
+        console.log('categoryId should be passed')
+        let apiResponse = response.generateResponse(true, 'CategoryId is missing', 403, null)
+        res.send(apiResponse)
+    } else {
+    ProductModel.find({ 'prodCategory': req.params.prodCategory }, (err, result) => {
+
+        if (err) {
+            logger.error(`Error Occured : ${err}`, 'Database', 10)
+            let apiResponse = response.generateResponse(true, 'Internal Server Error', 500, null);
+                res.send(apiResponse)
+        } else if (result == undefined || result == null || result == '') {
+            let apiResponse = response.generateResponse(true, 'No product found', 404, null);
+                res.send(apiResponse)
+        } else {
+            let apiResponse = response.generateResponse(false, 'product details found', 200, result);
+                res.send(apiResponse)
+        }
+    })
+}
+}
+
+/**
+ * function to create the product.
+ */
+let createProduct = (req, res) => {
+    
+
+    //shortid - generates a very small user friendly short & unique ids for evry product created
+    /* we are not using productID i.e: _id generated by MongoDB as its a security risk, exposing internal DB
+     data is not a good practise*/
+    let prodId = shortid.generate()
+
+    let newproduct = new ProductModel({
+
+        prodId: prodId,
+        prodCategory: req.body.prodCategory,
+        prodName: req.body.prodName,
+        prodManufacturer: req.body.prodManufacturer,
+        prodDesc: req.body.prodDesc,       
+        prodRating: req.body.prodRating,
+        created: time.now(),
+        lastModified: time.now()
+    }) // end new product model
+
+    let prodReviews = (req.body.prodReviews != undefined && req.body.prodReviews != null && req.body.prodReviews != '') ? req.body.prodReviews.split(',') : []
+    newproduct.prodReviews = prodReviews
+
+    // .save - mongoose function
+    newproduct.save((err, result) => {
+        if (err) {
+            let apiResponse = response.generateResponse(true, 'Internal Server Error', 500, null);
+                res.send(apiResponse)
+        } else {
+            let apiResponse = response.generateResponse(false, 'product created!', 200, result);
+            res.send(apiResponse)
+        }
+    }) // end new product save
+}
+
+
+/**
+ * function to edit product by admin. - PUT
+ */
+let editProduct = (req, res) => {
+
+    if (check.isEmpty(req.params.prodId)) {
+
+        console.log('productId should be passed')
+        let apiResponse = response.generateResponse(true, 'productId is missing', 403, null)
+        res.send(apiResponse)
+    } else {
+    let options = req.body;
+    console.log(options);
+    //take productId as condition - ie which product you want to update/edit
+    //options: take whole object/all body params
+    //multi: true - update all params
+    ProductModel.update({ 'prodId': req.params.prodId }, options, { multi: true }).exec((err, result) => {
+
+        if (err) {
+            logger.error(`Error Occured : ${err}`, 'Database', 10)
+            let apiResponse = response.generateResponse(true, 'Internal Server Error', 500, null);
+                res.send(apiResponse)
+        } else if (result == undefined || result == null || result == '') {
+            let apiResponse = response.generateResponse(true, 'product update error', 404, null);
+                res.send(apiResponse)
+        } else {
+            let apiResponse = response.generateResponse(false, 'product updated', 200, result);
+            res.send(apiResponse)
+        }
+    })
+}
+}
+
+
+
+/**
+ * function to delete the product. - POST
+ */
+let deleteProduct = (req, res) => {
+    if (check.isEmpty(req.params.prodId)) {
+
+        console.log('productId should be passed')
+        let apiResponse = response.generateResponse(true, 'productId is missing', 403, null)
+        res.send(apiResponse)
+    } else {
+    ProductModel.remove({ 'prodId': req.params.prodId }, (err, result) => {
+        if (err) {
+            logger.error(`Error Occured : ${err}`, 'Database', 10)
+            let apiResponse = response.generateResponse(true, 'Internal Server Error', 500, null);
+                res.send(apiResponse)
+        } else if (result == undefined || result == null || result == '') {
+            let apiResponse = response.generateResponse(true, 'Cant delete', 404, null);
+                res.send(apiResponse)
+        } else {
+            let apiResponse = response.generateResponse(false, 'product deleted', 200, result);
+            res.send(apiResponse)
+        }
+    })
+}
+}
+
+
+
+
+module.exports = {
+    getAllProducts: getAllProducts,
+    createProduct: createProduct,
+    viewByProductId: viewByProductId,
+    viewByProductCategory: viewByProductCategory,
+    editProduct: editProduct,
+    deleteProduct: deleteProduct
+}
